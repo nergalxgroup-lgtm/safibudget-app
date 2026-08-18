@@ -1,18 +1,17 @@
 import { NextResponse } from 'next/server';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../../../../../lib/auth';
+import { getUserIdFromRequest } from '../../../../../lib/jwt';
 import { prisma } from '../../../../../lib/prisma';
 
-// POST /api/tontines/:id/contribute — méthode interne (solde SafiBudget)
-// Portage direct de SafiDB.contribute(), mais en transaction Postgres
-// pour éviter les doubles paiements en cas d'appels concurrents.
+// POST /api/tontines/:id/contribute — méthode interne (solde SafiBudget), en transaction
+// pour éviter les doubles paiements en cas d'appels concurrents entre plusieurs membres.
 export async function POST(req, { params }) {
-  const session = await getServerSession(authOptions);
-  if (!session) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
+  const userId = getUserIdFromRequest(req);
+  if (!userId) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
+  const user = await prisma.user.findUnique({ where: { id: userId } });
   const tontineId = params.id;
   const { amount } = await req.json();
-  const memberName = session.user.name;
+  const memberName = user.nom;
 
   try {
     const result = await prisma.$transaction(async (tx) => {
@@ -20,11 +19,7 @@ export async function POST(req, { params }) {
       if (!tontine) throw new Error('Tontine introuvable');
 
       const payment = await tx.tontinePayment.findUnique({
-        where: {
-          tontineId_memberName_cycleNum: {
-            tontineId, memberName, cycleNum: tontine.currentTurn,
-          },
-        },
+        where: { tontineId_memberName_cycleNum: { tontineId, memberName, cycleNum: tontine.currentTurn } },
       });
       if (!payment) throw new Error('Membre introuvable pour ce cycle');
       if (payment.status === 'paid' || payment.status === 'proof_uploaded') {
@@ -37,7 +32,6 @@ export async function POST(req, { params }) {
       });
 
       const newWallet = tontine.walletBalance + amount;
-
       const remaining = await tx.tontinePayment.count({
         where: { tontineId, cycleNum: tontine.currentTurn, status: { not: 'paid' } },
       });
@@ -51,9 +45,6 @@ export async function POST(req, { params }) {
       return { walletBalance: newWallet, allPaid };
     });
 
-    // Le déclenchement du versement (disburse) se fait via un second appel
-    // (ex. bouton "Débloquer le pot" ou un cron Vercel) plutôt qu'un setTimeout
-    // côté client, pour rester fiable en environnement serverless.
     return NextResponse.json({ ok: true, ...result });
   } catch (err) {
     return NextResponse.json({ ok: false, error: err.message }, { status: 400 });
