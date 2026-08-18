@@ -1,0 +1,307 @@
+// SafiBudget — Schéma Prisma (Neon Postgres)
+// Migré depuis la structure SafiDB (localStorage) de l'app HTML/JS.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ═══════════════════════════════════════════
+// UTILISATEUR
+// ═══════════════════════════════════════════
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  nom          String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  // Profil / préférences (ex state.preferences)
+  secteur          String?
+  toleranceRisque  String?
+  onboardingFait   Boolean  @default(false)
+
+  revenu         Float   @default(0)
+  revenuSource   String  @default("compte")
+
+  // Relations
+  revenuHistorique      RevenuHistorique[]
+  budgetDepenses        BudgetDepense[]
+  imprevus               Imprevu[]
+  depensesJournalieres   DepenseJournaliere[]
+  echeances              Echeance[]
+  transactions           Transaction[]
+  objectives             Objective[]
+  notifications          Notification[]
+  comptesLies            CompteLie[]
+  communautePosts        CommunautePost[]
+  defisActifs            DefiActif[]
+  badges                 Badge[]
+  coursProgression       CoursProgression[]
+
+  tontinesAdmin     Tontine[]            @relation("TontineAdmin")
+  tontineMembre     TontineParticipant[]
+
+  points   Int @default(0)
+
+  @@map("users")
+}
+
+// ═══════════════════════════════════════════
+// FINANCES
+// ═══════════════════════════════════════════
+
+model RevenuHistorique {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  montant   Float
+  source    String
+  date      DateTime @default(now())
+  label     String?
+
+  @@map("revenu_historique")
+}
+
+model BudgetDepense {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nom       String
+  montant   Float
+  raison    String
+  date      DateTime
+  supprime  Boolean  @default(false)
+
+  @@map("budget_depenses")
+}
+
+model Imprevu {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nom       String
+  montant   Float
+  date      DateTime @default(now())
+  supprime  Boolean  @default(false)
+
+  @@map("imprevus")
+}
+
+model DepenseJournaliere {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nom       String
+  montant   Float
+  date      DateTime @default(now())
+  supprime  Boolean  @default(false)
+
+  @@map("depenses_journalieres")
+}
+
+model Echeance {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nom         String
+  montant     Float
+  date        DateTime
+  recurrence  String
+  icon        String?
+  bg          String?
+  color       String?
+  paid        Boolean   @default(false)
+  paidDate    DateTime?
+
+  @@map("echeances")
+}
+
+model Transaction {
+  id     String   @id @default(cuid())
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type   String   // 'revenu' | 'depense' | 'epargne'
+  desc   String
+  cat    String
+  amount Float
+  date   DateTime
+
+  @@map("transactions")
+}
+
+model Objective {
+  id     String   @id @default(cuid())
+  userId String
+  user   User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name   String
+  icon   String?
+  target Float
+  saved  Float    @default(0)
+  date   DateTime
+  color  String?
+
+  @@map("objectives")
+}
+
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  icon      String?
+  iconBg    String?
+  iconColor String?
+  text      String
+  createdAt DateTime @default(now())
+  unread    Boolean  @default(true)
+
+  @@map("notifications")
+}
+
+model CompteLie {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nom      String
+  banque   String?
+  solde    Float   @default(0)
+
+  @@map("comptes_lies")
+}
+
+// ═══════════════════════════════════════════
+// TONTINES (cœur transactionnel — multi-utilisateurs)
+// ═══════════════════════════════════════════
+
+model Tontine {
+  id            String   @id @default(cuid())
+  name          String
+  amount        Float
+  membersCount  Int
+  startDate     DateTime
+  desc          String?
+  walletBalance Float    @default(0)
+  status        String   @default("collecting") // collecting | ready | completed
+  currentTurn   Int      @default(1)
+
+  adminId String
+  admin   User   @relation("TontineAdmin", fields: [adminId], references: [id])
+
+  participants TontineParticipant[]
+  payments     TontinePayment[]
+  cycles       TontineCycle[]
+
+  createdAt DateTime @default(now())
+
+  @@map("tontines")
+}
+
+// Un membre par tontine, avec sa position dans l'ordre de tour
+model TontineParticipant {
+  id         String  @id @default(cuid())
+  tontineId  String
+  tontine    Tontine @relation(fields: [tontineId], references: [id], onDelete: Cascade)
+  userId     String?
+  user       User?   @relation(fields: [userId], references: [id])
+  memberName String  // conserve le nom même si pas encore de compte utilisateur
+  ordre      Int     // position dans le tour (0-indexé)
+
+  @@unique([tontineId, ordre])
+  @@map("tontine_participants")
+}
+
+// Paiement du cycle courant pour chaque membre
+model TontinePayment {
+  id          String    @id @default(cuid())
+  tontineId   String
+  tontine     Tontine   @relation(fields: [tontineId], references: [id], onDelete: Cascade)
+  memberName  String
+  cycleNum    Int
+  amount      Float     @default(0)
+  date        DateTime?
+  status      String    @default("pending") // pending | proof_uploaded | paid
+  method      String?   // wallet | wave | orange_money | virement
+  preuveUrl   String?
+  preuveNom   String?
+  preuveDate  DateTime?
+
+  @@unique([tontineId, memberName, cycleNum])
+  @@map("tontine_payments")
+}
+
+// Historique des cycles clôturés (versements du pot)
+model TontineCycle {
+  id             String   @id @default(cuid())
+  tontineId      String
+  tontine        Tontine  @relation(fields: [tontineId], references: [id], onDelete: Cascade)
+  cycleNum       Int
+  beneficiary    String
+  totalCollected Float
+  paidAt         DateTime @default(now())
+
+  @@map("tontine_cycles")
+}
+
+// ═══════════════════════════════════════════
+// COMMUNAUTÉ / DÉFIS / ACADÉMIE
+// ═══════════════════════════════════════════
+
+model CommunautePost {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String   // succes | conseil | question | defi
+  texte     String
+  ville     String?
+  likes     Int      @default(0)
+  comments  Int      @default(0)
+  createdAt DateTime @default(now())
+
+  @@map("communaute_posts")
+}
+
+model DefiActif {
+  id       String @id @default(cuid())
+  userId   String
+  user     User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nom      String
+  desc     String?
+  progress Float  @default(0)
+  total    Float
+  points   Int
+  emoji    String?
+  deadline DateTime?
+  statut   String @default("actif") // actif | complete
+
+  @@map("defis_actifs")
+}
+
+model Badge {
+  id     String  @id @default(cuid())
+  userId String
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  nom    String
+  emoji  String?
+  desc   String?
+  obtenu Boolean @default(false)
+
+  @@map("badges")
+}
+
+model CoursProgression {
+  id         String @id @default(cuid())
+  userId     String
+  user       User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  coursId    Int
+  progression Int   @default(0) // 0-100
+
+  @@unique([userId, coursId])
+  @@map("cours_progression")
+}
