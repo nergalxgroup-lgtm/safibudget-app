@@ -31,10 +31,7 @@ export async function GET(req) {
 
   const communautePosts = await prisma.communautePost.findMany({ orderBy: { createdAt: 'desc' }, take: 50 });
 
-  const tontines = await prisma.tontine.findMany({
-    where: { OR: [{ adminId: userId }, { participants: { some: { userId } } }] },
-    include: { participants: true, payments: true, cycles: true },
-  });
+  const tontines = user.tontinesData || [];
 
   return NextResponse.json({
     revenu: { montant: user.revenu, source: user.revenuSource },
@@ -98,10 +95,13 @@ export async function POST(req) {
         }
       }
 
-      if (body.revenu) {
+      if (body.revenu || body.tontines !== undefined) {
         await tx.user.update({
           where: { id: userId },
-          data: { revenu: body.revenu.montant || 0, revenuSource: body.revenu.source || 'compte' },
+          data: {
+            ...(body.revenu ? { revenu: body.revenu.montant || 0, revenuSource: body.revenu.source || 'compte' } : {}),
+            ...(body.tontines !== undefined ? { tontinesData: body.tontines } : {}),
+          },
         });
       }
 

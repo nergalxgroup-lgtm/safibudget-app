@@ -50,6 +50,7 @@ model User {
   tontineMembre     TontineParticipant[]
 
   points   Int @default(0)
+  tontinesData Json @default("[]")
 
   @@map("users")
 }
