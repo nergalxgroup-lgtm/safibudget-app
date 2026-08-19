@@ -34,6 +34,7 @@ export async function GET(req) {
     tontines,
     defis: user.defisData || {},
     defiPoints: user.defiPoints || 0,
+    acadState: user.acadData || {},
     preferences: {
       secteur: user.secteur,
       toleranceRisque: user.toleranceRisque,
@@ -89,7 +90,7 @@ export async function POST(req) {
         }
       }
 
-      if (body.revenu || body.tontines !== undefined || body.defis !== undefined || body.defiPoints !== undefined) {
+      if (body.revenu || body.tontines !== undefined || body.defis !== undefined || body.defiPoints !== undefined || body.acadState !== undefined) {
         await tx.user.update({
           where: { id: userId },
           data: {
@@ -97,6 +98,7 @@ export async function POST(req) {
             ...(body.tontines !== undefined ? { tontinesData: body.tontines } : {}),
             ...(body.defis !== undefined ? { defisData: body.defis } : {}),
             ...(body.defiPoints !== undefined ? { defiPoints: body.defiPoints } : {}),
+            ...(body.acadState !== undefined ? { acadData: body.acadState } : {}),
           },
         });
       }

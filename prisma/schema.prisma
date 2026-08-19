@@ -53,6 +53,7 @@ model User {
   tontinesData Json @default("[]")
   defisData    Json @default("{}")
   defiPoints   Int  @default(0)
+  acadData     Json @default("{}")
 
   @@map("users")
 }
