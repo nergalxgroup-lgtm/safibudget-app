@@ -104,6 +104,66 @@ export async function POST(req) {
           data: { revenu: body.revenu.montant || 0, revenuSource: body.revenu.source || 'compte' },
         });
       }
+
+      if (Array.isArray(body.imprevus)) {
+        await tx.imprevu.deleteMany({ where: { userId } });
+        if (body.imprevus.length) {
+          await tx.imprevu.createMany({
+            data: body.imprevus.map(i => ({
+              userId, nom: i.nom, montant: i.montant, date: new Date(i.date),
+            })),
+          });
+        }
+      }
+
+      if (Array.isArray(body.depensesJournalieres)) {
+        await tx.depenseJournaliere.deleteMany({ where: { userId } });
+        if (body.depensesJournalieres.length) {
+          await tx.depenseJournaliere.createMany({
+            data: body.depensesJournalieres.map(d => ({
+              userId, nom: d.nom, montant: d.montant, date: new Date(d.date),
+            })),
+          });
+        }
+      }
+
+      if (Array.isArray(body.echeances)) {
+        await tx.echeance.deleteMany({ where: { userId } });
+        if (body.echeances.length) {
+          await tx.echeance.createMany({
+            data: body.echeances.map(e => ({
+              userId, nom: e.nom, montant: e.montant, date: new Date(e.date),
+              recurrence: e.recurrence || 'mensuel', icon: e.icon || null,
+              bg: e.bg || null, color: e.color || null,
+              paid: !!e.paid, paidDate: e.paidDate ? new Date(e.paidDate) : null,
+            })),
+          });
+        }
+      }
+
+      if (Array.isArray(body.notifications)) {
+        await tx.notification.deleteMany({ where: { userId } });
+        if (body.notifications.length) {
+          await tx.notification.createMany({
+            data: body.notifications.map(n => ({
+              userId, icon: n.icon || null, iconBg: n.iconBg || null,
+              iconColor: n.iconColor || null, text: n.text,
+              unread: n.unread !== false,
+            })),
+          });
+        }
+      }
+
+      if (Array.isArray(body.comptesLies)) {
+        await tx.compteLie.deleteMany({ where: { userId } });
+        if (body.comptesLies.length) {
+          await tx.compteLie.createMany({
+            data: body.comptesLies.map(c => ({
+              userId, nom: c.nom, banque: c.type || null, solde: c.solde || 0,
+            })),
+          });
+        }
+      }
     });
 
     return NextResponse.json({ ok: true });
