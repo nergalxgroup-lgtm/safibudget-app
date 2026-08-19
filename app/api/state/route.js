@@ -7,11 +7,8 @@ export async function GET(req) {
   const userId = getUserIdFromRequest(req);
   if (!userId) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
 
-  const [
-    user, transactions, budgetDepenses, imprevus, depensesJournalieres,
-    echeances, objectives, notifications, comptesLies, revenuHistorique,
-    defisActifs, badges, coursProgression,
-  ] = await Promise.all([
+  const [user, transactions, budgetDepenses, imprevus, depensesJournalieres,
+    echeances, objectives, notifications, comptesLies, revenuHistorique] = await Promise.all([
     prisma.user.findUnique({ where: { id: userId } }),
     prisma.transaction.findMany({ where: { userId }, orderBy: { date: 'asc' } }),
     prisma.budgetDepense.findMany({ where: { userId, supprime: false } }),
@@ -22,24 +19,21 @@ export async function GET(req) {
     prisma.notification.findMany({ where: { userId }, orderBy: { createdAt: 'desc' } }),
     prisma.compteLie.findMany({ where: { userId } }),
     prisma.revenuHistorique.findMany({ where: { userId }, orderBy: { date: 'asc' } }),
-    prisma.defiActif.findMany({ where: { userId } }),
-    prisma.badge.findMany({ where: { userId } }),
-    prisma.coursProgression.findMany({ where: { userId } }),
   ]);
 
   if (!user) return NextResponse.json({ error: 'Utilisateur introuvable' }, { status: 404 });
 
   const communautePosts = await prisma.communautePost.findMany({ orderBy: { createdAt: 'desc' }, take: 50 });
-
   const tontines = user.tontinesData || [];
 
   return NextResponse.json({
     revenu: { montant: user.revenu, source: user.revenuSource },
     revenuHistorique, budgetDepenses, imprevus, depensesJournalieres,
     echeances, transactions, objectives, notifications, comptesLies,
-    communautePosts, tontines,
-    defisState: { points: user.points, actifs: defisActifs, badges },
-    acadState: { coursProgression },
+    communautePosts,
+    tontines,
+    defis: user.defisData || {},
+    defiPoints: user.defiPoints || 0,
     preferences: {
       secteur: user.secteur,
       toleranceRisque: user.toleranceRisque,
@@ -95,14 +89,30 @@ export async function POST(req) {
         }
       }
 
-      if (body.revenu || body.tontines !== undefined) {
+      if (body.revenu || body.tontines !== undefined || body.defis !== undefined || body.defiPoints !== undefined) {
         await tx.user.update({
           where: { id: userId },
           data: {
             ...(body.revenu ? { revenu: body.revenu.montant || 0, revenuSource: body.revenu.source || 'compte' } : {}),
             ...(body.tontines !== undefined ? { tontinesData: body.tontines } : {}),
+            ...(body.defis !== undefined ? { defisData: body.defis } : {}),
+            ...(body.defiPoints !== undefined ? { defiPoints: body.defiPoints } : {}),
           },
         });
+      }
+
+      // Communauté : flux PARTAGÉ entre utilisateurs — on ajoute les nouveaux posts
+      // (identifiés par absence d'id serveur) plutôt que d'écraser tout le flux.
+      if (Array.isArray(body.communautePosts)) {
+        const newPosts = body.communautePosts.filter(p => !p.id || typeof p.id !== 'string' || p.id.length < 20);
+        if (newPosts.length) {
+          await tx.communautePost.createMany({
+            data: newPosts.map(p => ({
+              userId, type: p.type || 'conseil', texte: p.texte,
+              ville: p.ville || null, likes: p.likes || 0, comments: p.comments || 0,
+            })),
+          });
+        }
       }
 
       if (Array.isArray(body.imprevus)) {
