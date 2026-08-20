@@ -1,11 +1,17 @@
 import { NextResponse } from 'next/server';
+import { GoogleGenAI } from '@google/genai';
 import { getUserIdFromRequest } from '../../../../lib/jwt';
 
 // POST /api/ia/generate
 // Reçoit { messages, system?, max_tokens? } — le même format que les appels
 // Anthropic d'origine côté front — et appelle Gemini avec la clé API côté serveur
-// (jamais exposée au client). Renvoie { content: [{ type:'text', text:'...' }] }
-// pour rester compatible avec le code de parsing déjà écrit côté front.
+// (jamais exposée au client), via le SDK officiel (compatible avec les nouvelles
+// clés au format "AQ." comme avec l'ancien format "AIzaSy").
+// Renvoie { content: [{ type:'text', text:'...' }] } pour rester compatible avec
+// le code de parsing déjà écrit côté front.
+
+const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+
 export async function POST(req) {
   const userId = getUserIdFromRequest(req);
   if (!userId) return NextResponse.json({ error: 'Non authentifié' }, { status: 401 });
@@ -22,36 +28,22 @@ export async function POST(req) {
     parts: [{ text: m.content }],
   }));
 
-  const body = {
-    contents,
-    generationConfig: { maxOutputTokens: max_tokens || 1000 },
-  };
-  if (system) {
-    body.systemInstruction = { parts: [{ text: system }] };
-  }
-
   try {
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`,
-      {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      }
-    );
-    const data = await geminiRes.json();
+    const config = { maxOutputTokens: max_tokens || 1000 };
+    if (system) config.systemInstruction = system;
 
-    if (!geminiRes.ok) {
-      console.error('Gemini error', data);
-      return NextResponse.json({ error: data.error?.message || 'Erreur Gemini' }, { status: 502 });
-    }
+    const response = await ai.models.generateContent({
+      model: 'gemini-2.5-flash',
+      contents,
+      config,
+    });
 
-    const text = data.candidates?.[0]?.content?.parts?.map(p => p.text).join('') || '';
+    const text = response.text || '';
 
     // Forme compatible avec ce qu'attendait le code front (data.content[0].text)
     return NextResponse.json({ content: [{ type: 'text', text }] });
   } catch (err) {
     console.error('IA proxy error', err);
-    return NextResponse.json({ error: 'Erreur serveur' }, { status: 500 });
+    return NextResponse.json({ error: err.message || 'Erreur serveur' }, { status: 502 });
   }
 }
